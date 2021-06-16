@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <pthread.h>
-#include <sys/time.h>
+#include <time.h>
 
 // Data-level information
 typedef unsigned long meta__t;
@@ -60,6 +60,7 @@ typedef struct {
     int db_handler;
     size_t timer;
     int log_handler;
+    long *histogram;
 } WorkerArg;
 
 int get_handler(int flag);
@@ -110,5 +111,7 @@ int terminate();
 int compare_nodes(Node *x, Node *y);
 
 void print_node(ptr__t ptr, Node *node);
+
+void print_tail_latency(WorkerArg* args, size_t request_num);
 
 #endif

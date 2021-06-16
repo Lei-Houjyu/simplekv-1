@@ -164,12 +164,16 @@ int load(size_t layer_num) {
 }
 
 void initialize_workers(WorkerArg *args, size_t total_op_count) {
+    args[0].histogram = (long *)malloc(total_op_count * sizeof(long));
+    size_t offset = 0;
     for (size_t i = 0; i < worker_num; i++) {
         args[i].index = i;
         args[i].op_count = (total_op_count / worker_num) + (i < total_op_count % worker_num);
         args[i].db_handler = get_handler(O_RDONLY);
         args[i].log_handler = get_log_handler(O_RDONLY);
         args[i].timer = 0;
+        args[i].histogram = args[0].histogram + offset;
+        offset += args[i].op_count;
     }
 }
 
@@ -184,6 +188,33 @@ void terminate_workers(pthread_t *tids, WorkerArg *args) {
         pthread_join(tids[i], NULL);
         close(args[i].db_handler);
     }
+}
+
+int cmp(const void *a, const void *b) {
+    return *(long *)a - *(long *)b;
+}
+
+void print_tail_latency(WorkerArg* args, size_t request_num) {
+    long *histogram = args[0].histogram;
+    qsort(histogram, request_num, sizeof(long), cmp);
+
+    long sum95 = 0, sum99 = 0, sum999 = 0;
+    long idx95 = request_num * 0.95, idx99 = request_num * 0.99, idx999 = request_num * 0.999;
+    // printf("idx95: %ld idx99: %ld idx999: %ld\n", idx95, idx99, idx999);
+    // for (size_t i = 0; i < request_num; i++) {
+    //     printf("%ld ", histogram[i]);
+    // }
+    // printf("\n");
+
+    for (size_t i = idx95; i < request_num; i++) {
+        sum95  += histogram[i];
+        sum99  += i >= idx99  ? histogram[i] : 0;
+        sum999 += i >= idx999 ? histogram[i] : 0;
+    }
+
+    printf("95%%   latency: %f us\n", (double)sum95  / (request_num - idx95)  / 1000);
+    printf("99%%   latency: %f us\n", (double)sum99  / (request_num - idx99)  / 1000);
+    printf("99.9%% latency: %f us\n", (double)sum999 / (request_num - idx999) / 1000);
 }
 
 int run(size_t layer_num, size_t request_num, size_t thread_num) {
@@ -210,6 +241,8 @@ int run(size_t layer_num, size_t request_num, size_t thread_num) {
     printf("Average throughput: %f op/s latency: %f usec\n", 
             (double)request_num / run_time * 1000000000, (double)total_latency / request_num / 1000);
 
+    print_tail_latency(args, request_num);
+
     return terminate();
 }
 
@@ -225,7 +258,9 @@ void *subtask(void *args) {
         clock_gettime(CLOCK_REALTIME, &tps);
         get(key, val, r->db_handler, r->log_handler);
         clock_gettime(CLOCK_REALTIME, &tpe);
-        r->timer += 1000000000 * (tpe.tv_sec - tps.tv_sec) + (tpe.tv_nsec - tps.tv_nsec);
+        long latency = 1000000000 * (tpe.tv_sec - tps.tv_sec) + (tpe.tv_nsec - tps.tv_nsec);
+        r->timer += latency;
+        r->histogram[i] = latency;
         if (key != atoi(val)) {
             printf("Error! key: %lu val: %s thrd: %ld\n", key, val, r->index);
         }      
