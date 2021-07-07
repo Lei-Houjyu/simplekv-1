@@ -100,6 +100,8 @@ int load(size_t layer_num);
 
 int run();
 
+bool early_than(struct timespec *x, struct timespec *y);
+
 size_t get_nano(struct timespec ts);
 
 void add_nano_to_timespec(struct timespec *x, size_t nano);

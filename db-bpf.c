@@ -278,6 +278,10 @@ void add_nano_to_timespec(struct timespec *x, size_t nano) {
     x->tv_nsec = (x->tv_nsec + nano) % 1000000000;
 }
 
+inline bool early_than(struct timespec *x, struct timespec *y) {
+    return x->tv_sec < y->tv_sec || (x->tv_sec == y->tv_sec && x->tv_nsec < y->tv_nsec);
+}
+
 void *subtask(void *args) {
     WorkerArg *r = (WorkerArg*)args;
     struct timespec start, end;
@@ -294,11 +298,16 @@ void *subtask(void *args) {
     deadline = now;
 
     for (size_t i = 0; i < r->op_count; i++) {
-        // 1. sleep until the new deadline
-        pthread_mutex_lock(&mutex);
+        // 1. busy polling until the new deadline
+        while (early_than(&now, &deadline)) {
+            traverse_complete(&r->local_ring);
+            clock_gettime(CLOCK_REALTIME, &now);
+        }
         add_nano_to_timespec(&deadline, gap);
-        pthread_cond_timedwait(&cond, &mutex, &deadline);
-        pthread_mutex_unlock(&mutex);
+        // pthread_mutex_lock(&mutex);
+        // add_nano_to_timespec(&deadline, gap);
+        // pthread_cond_timedwait(&cond, &mutex, &deadline);
+        // pthread_mutex_unlock(&mutex);
 
         // 2. init the request
         key__t key = rand() % max_key;
@@ -312,6 +321,7 @@ void *subtask(void *args) {
         // 4. issue the request
         clock_gettime(CLOCK_REALTIME, &req->start);
         traverse(encode(0), req);
+        now = req->start;
     }
 
     // 5. wait for the remaining requests
