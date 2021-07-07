@@ -300,12 +300,13 @@ void *subtask(void *args) {
     for (size_t i = 0; i < r->op_count; i++) {
         // 1. busy polling until the new deadline
         while (early_than(&now, &deadline)) {
-            traverse_complete(&r->local_ring);
+            if (i > r->finished) {
+                traverse_complete(&r->local_ring);
+            }
             clock_gettime(CLOCK_REALTIME, &now);
         }
         add_nano_to_timespec(&deadline, gap);
         // pthread_mutex_lock(&mutex);
-        // add_nano_to_timespec(&deadline, gap);
         // pthread_cond_timedwait(&cond, &mutex, &deadline);
         // pthread_mutex_unlock(&mutex);
 
