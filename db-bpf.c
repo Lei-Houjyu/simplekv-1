@@ -284,7 +284,6 @@ void *subtask(void *args) {
 
     srand(r->index);
     printf("thread %ld op_count %ld\n", r->index, r->op_count);
-    Request **req_arr = (Request **)malloc(r->op_count * sizeof(Request *));
     pthread_cond_t cond;
     pthread_mutex_t mutex;
     pthread_cond_init(&cond, NULL);
@@ -295,35 +294,34 @@ void *subtask(void *args) {
     deadline = now;
 
     for (size_t i = 0; i < r->op_count; i++) {
-        key__t key = rand() % max_key;
-        val__t val;
-
+        // 1. sleep until the new deadline
         pthread_mutex_lock(&mutex);
         add_nano_to_timespec(&deadline, gap);
-        while (r->issued < i) {
-            while (r->issued - r->finished >= QUEUE_DEPTH) {
-                traverse_complete(&r->local_ring);
-            }
-            traverse(encode(0), req_arr[r->issued++]);
-        }
         pthread_cond_timedwait(&cond, &mutex, &deadline);
         pthread_mutex_unlock(&mutex);
 
-        req_arr[i] = init_request(key, r);
-    }
-    pthread_cond_destroy(&cond);
-    pthread_mutex_destroy(&mutex);
+        // 2. init the request
+        key__t key = rand() % max_key;
+        Request *req = init_request(key, r);
 
-    while (r->issued < r->op_count) {
-        while (r->issued - r->finished >= QUEUE_DEPTH) {
+        // 3. ensure queue is not overflowed
+        while (i - r->finished >= QUEUE_DEPTH) {
             traverse_complete(&r->local_ring);
         }
-        traverse(encode(0), req_arr[r->issued++]);
+        
+        // 4. issue the request
+        clock_gettime(CLOCK_REALTIME, &req->start);
+        traverse(encode(0), req);
     }
+
+    // 5. wait for the remaining requests
     while (r->finished < r->op_count) {
         traverse_complete(&r->local_ring);
     }
-    free(req_arr);
+
+    pthread_cond_destroy(&cond);
+    pthread_mutex_destroy(&mutex);
+
     printf("thread %lu finishes %lu\n", r->index, r->finished);
 }
 
@@ -550,7 +548,6 @@ Request *init_request(key__t key, WorkerArg *warg) {
     req->ofs = 0;
     req->warg = warg;
     req->is_value = false;
-    clock_gettime(CLOCK_REALTIME, &(req->start));
 
     return req;
 }
