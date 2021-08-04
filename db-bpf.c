@@ -25,7 +25,7 @@ void initialize(size_t layer_num, int mode) {
     }
     io_uring_queue_init(QUEUE_DEPTH, &global_ring, 0);
     
-    ioctl(db, TREENVME_IOCTL_IO_CMD);
+    // ioctl(db, TREENVME_IOCTL_IO_CMD);
     layer_cap = (size_t *)malloc(layer_num * sizeof(size_t));
     total_node = 1;
     layer_cap[0] = 1;
@@ -299,13 +299,13 @@ void *subtask(void *args) {
 
     for (size_t i = 0; i < r->op_count; i++) {
         // 1. busy polling until the new deadline
-        while (early_than(&now, &deadline)) {
-            if (i > r->finished) {
-                traverse_complete(&r->local_ring);
-            }
-            clock_gettime(CLOCK_REALTIME, &now);
-        }
-        add_nano_to_timespec(&deadline, gap);
+        // while (early_than(&now, &deadline)) {
+        //     if (i > r->finished) {
+        //         traverse_complete(&r->local_ring);
+        //     }
+        //     clock_gettime(CLOCK_REALTIME, &now);
+        // }
+        // add_nano_to_timespec(&deadline, gap);
         // pthread_mutex_lock(&mutex);
         // pthread_cond_timedwait(&cond, &mutex, &deadline);
         // pthread_mutex_unlock(&mutex);
@@ -433,7 +433,7 @@ void traverse_complete(struct io_uring *ring) {
     Request *req = io_uring_cqe_get_data(cqe);
     io_uring_cqe_seen(ring, cqe);
 
-    // if (req->is_value) {
+    if (req->is_value) {
         val__t val;
         Log *log = (Log *)req->vec.iov_base;
         memcpy(val, log->val[req->ofs / VAL_SIZE], VAL_SIZE);
@@ -459,17 +459,17 @@ void traverse_complete(struct io_uring *ring) {
         //         1000000 * end.tv_sec + end.tv_nsec,
         //         latency);
 
-    // } else {
-    //     Node *node = (Node *)req->vec.iov_base;
-    //     ptr__t ptr = next_node(req->key, node);
-    //     if (node->type == LEAF) {
-    //         req->is_value = true;
-    //         ptr__t mask = BLK_SIZE - 1;
-    //         req->ofs = ptr & mask;
-    //         ptr &= (~mask);
-    //     }
-    //     traverse(ptr, req);
-    // }
+    } else {
+        Node *node = (Node *)req->vec.iov_base;
+        ptr__t ptr = next_node(req->key, node);
+        if (node->type == LEAF) {
+            req->is_value = true;
+            ptr__t mask = BLK_SIZE - 1;
+            req->ofs = ptr & mask;
+            ptr &= (~mask);
+        }
+        traverse(ptr, req);
+    }
 }
 
 void wait_for_completion(struct io_uring *ring, size_t *counter, size_t target) {
